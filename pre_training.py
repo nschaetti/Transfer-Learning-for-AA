@@ -33,12 +33,12 @@ import torch.nn as nn
 from torch import optim
 import os
 from authors import authors as aa
+import copy
 
 # Settings
-n_epoch = 600
-embedding_dim = 300
-n_authors = 15
+embedding_dim = 50
 use_cuda = False
+voc_size = 0
 
 # Argument parser
 parser = argparse.ArgumentParser(description="CNN pre-training")
@@ -47,13 +47,28 @@ parser = argparse.ArgumentParser(description="CNN pre-training")
 parser.add_argument("--output", type=str, help="Pre-trained classifier output file", default='.')
 parser.add_argument("--n-features", type=int, help="Number of features", default=60)
 parser.add_argument("--n-authors", type=int, help="Number of authors to pre-train", default=30)
+parser.add_argument("--character-gram", type=int, help="Character gram", default=2)
+parser.add_argument("--batch-size", type=int, help="Batch size", default=64)
+parser.add_argument("--epoch", type=int, help="Epoch", default=500)
 args = parser.parse_args()
 
 # Authors
 authors = aa[-args.n_authors:]
 
 # Word embedding
-transform = text.Character()
+if args.character_gram == 1:
+    transform = text.Character(fixed_length=7978, start_ix=1)
+    window_size = 7978
+    voc_size = 60
+elif args.character_gram == 2:
+    transform = text.Character2Gram(fixed_length=7978, start_ix=1)
+    window_size = 7978
+    voc_size = 1653
+elif args.character_gram == 3:
+    transform = text.Character3Gram(fixed_length=7977, start_ix=1)
+    window_size = 7977
+    voc_size = 16889
+# end if
 
 # Reuters C50 dataset
 reutersloader = torch.utils.data.DataLoader(
@@ -61,13 +76,16 @@ reutersloader = torch.utils.data.DataLoader(
     batch_size=1, shuffle=False)
 
 # Model
-model = CNNClassifier(voc_size=0, embedding_dim=embedding_dim, n_authors=args.n_authors, n_features=args.n_features)
+model = CNNClassifier(voc_size=voc_size, embedding_dim=embedding_dim, n_authors=args.n_authors, window_size=window_size, n_features=args.n_features)
 if use_cuda:
     model.cuda()
 # end if
 
+# Best model
+best_model = copy.deepcopy(model.state_dict())
+best_acc = 0.0
+
 # Loss function
-# loss_function = nn.NLLLoss()
 loss_function = nn.CrossEntropyLoss()
 
 # Optimizer
@@ -77,7 +95,7 @@ optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 reutersloader.dataset.set_fold(0)
 
 # Epoch
-for epoch in range(n_epoch):
+for epoch in range(args.epoch):
     # Total losses
     training_loss = 0.0
     test_loss = 0.0
@@ -143,10 +161,28 @@ for epoch in range(n_epoch):
         test_loss += loss.data[0]
     # end for
 
+    # Test accuracy
+    accuracy = success / total * 100.0
+
     # Print and save loss
     print(u"Epoch {}, training loss {}, test loss {}, accuracy {}".format(epoch, training_loss, test_loss,
-                                                                         success / total * 100.0))
+                                                                          accuracy))
+
+    # Best model?
+    if accuracy > best_acc:
+        best_acc = accuracy
+        best_model = copy.deepcopy(model.state_dict())
+    # end if
 # end for
 
+# Show best model
+print(u"Best accuracy : {}".format(best_acc))
+
+# Load best model
+model.load_state_dict(best_model)
+
+# Dict
+gram_to_ix = reutersloader.dataset.transform.gram_to_ix
+
 # Save model
-torch.save(model, open(os.path.join(args.output, u"cnn_pretrained." + str(args.n_features) + u"." + u".p")))
+torch.save((model, gram_to_ix), open(os.path.join(args.output, u"cnn_pretrained." + str(args.n_features) + u"." + u".p"), 'wb'))
