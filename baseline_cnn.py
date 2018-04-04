@@ -49,6 +49,7 @@ parser.add_argument("--character-gram", type=int, help="Character gram", default
 parser.add_argument("--n-features", type=int, help="Number of features", default=60)
 parser.add_argument("--batch-size", type=int, help="Batch size", default=64)
 parser.add_argument("--epoch", type=int, help="Epoch", default=500)
+parser.add_argument("--n-filters", type=int, help="Number of filters", default=500)
 args = parser.parse_args()
 
 # Authors
@@ -75,7 +76,9 @@ reutersloader = torch.utils.data.DataLoader(
     batch_size=args.batch_size, shuffle=False)
 
 # Model
-model = CNNClassifier(voc_size=voc_size, embedding_dim=embedding_dim, n_authors=args.n_authors, window_size=window_size, n_features=args.n_features)
+model = CNNClassifier(voc_size=voc_size, embedding_dim=embedding_dim, n_authors=args.n_authors,
+                      window_size=window_size, n_features=args.n_features,
+                      out_channels=(args.n_filters, args.n_filters, args.n_filters))
 if use_cuda:
     model.cuda()
 # end if
