@@ -10,6 +10,14 @@ authors = [u'JanLopatka', u'WilliamKazer', u'MarcelMichelson', u'KirstinRidley',
 test_authors = [u'JanLopatka', u'WilliamKazer', u'MarcelMichelson', u'KirstinRidley', u'GrahamEarnshaw', u'MichaelConnor', u'MartinWolk', u'ToddNissen', u'PatriciaCommins', u'KevinMorrison', u'HeatherScoffield', u'BradDorfman', u'DavidLawder', u'KevinDrawbaugh', u'LynnleyBrowning']
 training_authors = [x for x in authors if x not in test_authors]
 
+# Settings
+min_length = 165
+voc_sizes = {'c1': {'en': 1628, 'ar': 1839, 'es': 1805}, 'c2': {'en': 21510, 'ar': 31694, 'es': 30025}}
+gender_to_idx = {'female': 0, 'male': 1}
+idx_to_gender = {0: 'female', 1: 'male'}
+country_to_idx = {'canada': 0, 'australia': 1, 'new zealand': 2, 'ireland': 3, 'great britain': 4, 'united states': 5}
+idx_to_country = {0: 'canada', 1: 'australia', 2: 'new zealand', 3: 'ireland', 4: 'great britain', 5: 'united states'}
+
 # Glove settings
 glove_embedding_dim = 300
 
