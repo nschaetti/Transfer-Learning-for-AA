@@ -1,0 +1,2 @@
+
+python feature_selector_cnn_character.py --output feature_selectors/ccsaa/ --results results/feature_selector_cnn_character.p --text-length 20 --batch-size 64 --n-gram c1
