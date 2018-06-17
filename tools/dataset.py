@@ -14,7 +14,7 @@ import torch
 
 
 # Load authorship attribution dataset
-def load_AA_dataset(authors=None):
+def load_AA_dataset(batch_size=1, authors=None):
     """
     Load dataset
     :return:
@@ -29,14 +29,14 @@ def load_AA_dataset(authors=None):
     # Reuters C50 dataset training
     reuters_loader_train = torch.utils.data.DataLoader(
         torchlanguage.utils.CrossValidation(reutersc50_dataset),
-        batch_size=1,
+        batch_size=batch_size,
         shuffle=True
     )
 
     # Reuters C50 dataset test
     reuters_loader_test = torch.utils.data.DataLoader(
         torchlanguage.utils.CrossValidation(reutersc50_dataset, train=False),
-        batch_size=1,
+        batch_size=batch_size,
         shuffle=True
     )
     return reutersc50_dataset, reuters_loader_train, reuters_loader_test

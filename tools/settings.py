@@ -12,7 +12,7 @@ training_authors = [x for x in authors if x not in test_authors]
 
 # Settings
 min_length = 165
-voc_sizes = {'c1': {'en': 1628, 'ar': 1839, 'es': 1805}, 'c2': {'en': 21510, 'ar': 31694, 'es': 30025}}
+voc_sizes = {'c1': {'en': 87, 'ar': 1839, 'es': 1805}, 'c2': {'en': 3201, 'ar': 31694, 'es': 30025}}
 gender_to_idx = {'female': 0, 'male': 1}
 idx_to_gender = {0: 'female', 1: 'male'}
 country_to_idx = {'canada': 0, 'australia': 1, 'new zealand': 2, 'ireland': 3, 'great britain': 4, 'united states': 5}
@@ -32,6 +32,7 @@ cgfs_momentum = 0.9
 
 # CCSAA Settings
 ccsaa_epoch = 150
+# ccsaa_epoch = 20
 ccsaa_text_length = 20
 ccsaa_voc_size = 86
 ccsaa_output_dim = 150

@@ -33,15 +33,18 @@ import torch.nn as nn
 import torchlanguage.models
 from torchlanguage import transforms
 from tools import dataset, settings
+import echotorch.utils
 
 # Argument parser
 parser = argparse.ArgumentParser(description="CNN Character Feature Selector for AA (CCSAA)")
 
 # Argument
 parser.add_argument("--output", type=str, help="Embedding output file", default='.')
+parser.add_argument("--results", type=str, help="Embedding output file", default='.')
 parser.add_argument("--start-fold", type=int, help="Starting fold", default=0)
 parser.add_argument("--end-fold", type=int, help="Ending fold", default=9)
 parser.add_argument("--text-length", type=int, help="Text length", default=20)
+parser.add_argument("--n-filters", type=int, help="Number of filters", default=50)
 parser.add_argument("--batch-size", type=int, help="Batch-size", default=64)
 parser.add_argument("--n-gram", type=str, help="Character n-gram", default='c1')
 parser.add_argument("--no-cuda", action='store_true', default=False, help="Enables CUDA training")
@@ -54,71 +57,84 @@ args.cuda = not args.no_cuda and torch.cuda.is_available()
 if args.n_gram == 'c1':
     transform = transforms.Compose([
         transforms.Character(),
-        transforms.ToIndex(start_ix=0),
+        transforms.ToIndex(start_ix=1),
+        transforms.ToLength(length=args.text_length, min=True),
         transforms.ToNGram(n=args.text_length, overlapse=True),
         transforms.Reshape((-1, args.text_length))
     ])
 else:
     transform = transforms.Compose([
         transforms.Character2Gram(),
-        transforms.ToIndex(start_ix=0),
+        transforms.ToIndex(start_ix=1),
+        transforms.ToLength(length=args.text_length, min=True),
         transforms.ToNGram(n=args.text_length, overlapse=True),
         transforms.Reshape((-1, args.text_length))
     ])
 # end if
 
 # Load from directory
-reutersc50_dataset, reuters_loader_train, reuters_loader_test = dataset.load_dataset(settings.training_authors)
+reutersc50_dataset, reuters_loader_train, reuters_loader_test = dataset.load_AA_dataset(1, settings.training_authors)
 reutersc50_dataset.transform = transform
+print(u"{} authors".format(reutersc50_dataset.n_authors))
+n_authors = reutersc50_dataset.n_authors
 
 # Loss function
 loss_function = nn.CrossEntropyLoss()
 
+# Save results
+iteration_results = np.zeros(settings.ccsaa_epoch)
+
 # 10-CV
-for k in np.arange(args.start_fold, args.end_fold+1):
-    # Log
-    print(u"Starting fold {}".format(k))
+# for k in np.arange(args.start_fold, args.end_fold+1):
+# Log
+#     print(u"Starting fold {}".format(k))
 
-    # Set fold
-    reuters_loader_train.dataset.set_fold(k)
-    reuters_loader_test.dataset.set_fold(k)
+# Set fold
+# reuters_loader_train.dataset.set_fold(k)
+# reuters_loader_test.dataset.set_fold(k)
 
-    # Model
-    model = torchlanguage.models.CCSAA(
-        text_length=args.text_length,
-        vocab_size=settings.ccsaa_voc_size,
-        embedding_dim=settings.ccsaa_embedding_dim,
-        n_classes=settings.n_training_authors
-    )
-    if args.cuda:
-        model.cuda()
-    # end if
+# Model
+model = torchlanguage.models.CCSAA(
+    text_length=args.text_length,
+    vocab_size=settings.voc_sizes['c2']['en'],
+    embedding_dim=settings.ccsaa_embedding_dim,
+    out_channels=(args.n_filters, args.n_filters, args.n_filters),
+    n_classes=settings.n_training_authors
+)
+if args.cuda:
+    model.cuda()
+# end if
 
-    # Optimizer
-    optimizer = optim.SGD(model.parameters(), lr=settings.ccsaa_lr, momentum=settings.ccsaa_momentum)
+# Optimizer
+optimizer = optim.SGD(model.parameters(), lr=settings.ccsaa_lr, momentum=settings.ccsaa_momentum)
 
-    # Best model
-    best_acc = 0.0
+# Best model
+best_acc = 0.0
 
-    # Epoch
-    for epoch in range(settings.ccsaa_epoch):
-        # Total losses
-        training_loss = 0.0
-        test_loss = 0.0
+# Epoch
+for epoch in range(settings.ccsaa_epoch):
+    # Total losses
+    training_loss = 0.0
+    test_loss = 0.0
 
-        # Get test data for this fold
-        for i, data in enumerate(reuters_loader_train):
-            # Inputs and labels
-            inputs, labels, time_labels = data
+    # Train
+    model.train()
 
-            # Reshape
-            inputs = inputs.view(-1, args.text_length)
+    # Get test data for this fold
+    for i, data in enumerate(reuters_loader_train):
+        # Inputs and labels
+        input_samples, sample_labels, _ = data
 
-            # Outputs
-            outputs = torch.LongTensor(inputs.size(0)).fill_(labels[0])
+        # Reshape
+        input_samples = input_samples.view(-1, args.text_length)
 
+        # Outputs
+        output_samples = torch.LongTensor(input_samples.size(0)).fill_(sample_labels[0])
+
+        # For each batch
+        for j in np.arange(0, input_samples.size(0) - args.batch_size, args.batch_size):
             # To variable
-            inputs, outputs = Variable(inputs), Variable(outputs)
+            inputs, outputs = Variable(input_samples[j:j+args.batch_size]), Variable(output_samples[j:j+args.batch_size])
             if args.cuda:
                 inputs, outputs = inputs.cuda(), outputs.cuda()
             # end if
@@ -139,24 +155,41 @@ for k in np.arange(args.start_fold, args.end_fold+1):
             # Add
             training_loss += loss.data[0]
         # end for
+    # end for
 
-        # Counters
-        total = 0.0
-        success = 0.0
+    # Counters
+    token_total = 0.0
+    token_success = 0.0
+    total = 0.0
+    success = 0.0
 
-        # For each test sample
-        for i, data in enumerate(reuters_loader_test):
-            # Inputs and labels
-            inputs, labels, time_labels = data
+    # Eval
+    model.eval()
 
-            # Reshape
-            inputs = inputs.view(-1, args.text_length)
+    # For each test sample
+    for i, data in enumerate(reuters_loader_test):
+        # Inputs and labels
+        input_samples, sample_labels, _ = data
 
-            # Outputs
-            outputs = torch.LongTensor(inputs.size(0)).fill_(labels[0])
+        # Reshape
+        input_samples = input_samples.view(-1, args.text_length)
 
+        # Outputs
+        output_samples = torch.LongTensor(input_samples.size(0)).fill_(sample_labels[0])
+
+        # Label
+        label = torch.LongTensor(1).fill_(sample_labels[0])
+        author_prob = torch.zeros(1, n_authors)
+        if args.cuda:
+            author_prob, label = author_prob.cuda(), label.cuda()
+        # end if
+
+        # For each batch
+        prob_count = 0.0
+        for j in np.arange(0, input_samples.size(0) - args.batch_size, args.batch_size):
             # To variable
-            inputs, outputs = Variable(inputs), Variable(outputs)
+            inputs, outputs = Variable(input_samples[j:j + args.batch_size]), Variable(
+                output_samples[j:j + args.batch_size])
             if args.cuda:
                 inputs, outputs = inputs.cuda(), outputs.cuda()
             # end if
@@ -165,46 +198,75 @@ for k in np.arange(args.start_fold, args.end_fold+1):
             model_outputs = model(inputs)
             loss = loss_function(model_outputs, outputs)
 
-            # Take the max as predicted
-            _, predicted = torch.max(model_outputs.data, 1)
+            # Add
+            author_prob += torch.sum(model_outputs.data, dim=0)
 
-            # Add to correctly classified word
-            success += (predicted == outputs.data).sum()
-            total += predicted.size(0)
+            # Token success
+            _, token_predicted = torch.max(model_outputs, dim=1)
+            token_success += int((token_predicted == outputs).sum())
+            token_total += inputs.size(0)
 
             # Add loss
             test_loss += loss.data[0]
+
+            # Prob count
+            prob_count += inputs.size(0)
         # end for
 
-        # Accuracy
-        accuracy = success / total * 100.0
+        # Prob over time
+        author_prob /= prob_count
 
-        # Print and save loss
-        print(u"Fold {}, epoch {}, training loss {}, test loss {}, accuracy {}".format(
-            k,
-            epoch,
-            training_loss,
-            test_loss,
-            accuracy)
-        )
+        # Max over time
+        _, predicted = torch.max(author_prob, dim=1)
 
-        # Save if best
-        if accuracy > best_acc:
-            best_acc = accuracy
-            # Save model
-            print(u"Saving model with best accuracy {}".format(best_acc))
-            torch.save(model.state_dict(), open(
-                os.path.join(args.output, u"ccsaa." + str(k) + u".pth"),
-                'wb'))
-            torch.save(transform.transforms[1].token_to_ix, open(
-                os.path.join(args.output, u"ccsaa." + str(k) + u".voc.pth"),
-                'wb'))
-        # end if
+        # Add to correctly classified word
+        success += (predicted == label).sum()
+        total += 1.0
     # end for
 
-    # Log best accuracy
-    print(u"Fold {} with best accuracy {}".format(k, best_acc))
+    # Accuracy
+    accuracy = success / total * 100.0
+    token_accuracy = token_success / token_total * 100.0
 
-    # Reset model
-    model = None
-# edn for
+    # Print and save loss
+    print(u"Epoch {}, training loss {}, test loss {}, token accuracy {}, accuracy {}".format(
+        epoch,
+        training_loss,
+        test_loss,
+        token_accuracy,
+        accuracy)
+    )
+
+    # Save
+    iteration_results[epoch] = token_accuracy
+
+    # Save if best
+    if token_accuracy > best_acc:
+        best_acc = token_accuracy
+        # Save model
+        print(u"Saving model with best accuracy {}".format(best_acc))
+        torch.save(model.state_dict(), open(
+            os.path.join(args.output, u"ccsaa.pth"),
+            'wb'))
+        torch.save(transform.transforms[1].token_to_ix, open(
+            os.path.join(args.output, u"ccsaa.voc.pth"),
+            'wb'))
+    # end if
+# end for
+
+# Log best accuracy
+print(u"Best accuracy {}".format(best_acc))
+
+# Save results
+torch.save(iteration_results, open(args.results, 'wb'))
+
+# Make average for each iterations
+# iteration_results_average = np.average(iteration_results, axis=1)
+
+# Show
+print(iteration_results)
+
+# Print as latex
+for i in range(iteration_results.shape[0]):
+    print(u"({}, {})".format(i+1, iteration_results[i]))
+# end for
